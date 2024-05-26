@@ -1,0 +1,4 @@
+- source: why-quarto.qmd
+  quarto-pub:
+    - id: fd5bd16a-73f5-43ef-8659-03f0ba946334
+      url: 'https://cabuelow.quarto.pub/quarto_mme-ambl_lab-chat'

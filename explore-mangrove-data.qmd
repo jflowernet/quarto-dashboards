@@ -1,0 +1,146 @@
+---
+title: "Explore data"
+format: 
+  dashboard:
+      scrolling: true
+theme: flatly
+server: shiny
+---
+
+```{r}
+#| context: setup
+#| include: false
+library(tidyverse)
+library(sf)
+library(tmap)
+library(ggh4x)
+library(patchwork)
+library(shiny)
+tmap_mode('view')
+load('data/2024-04-29-drivers-epochs-intersect-typos_wdpa_v2.rda')
+typ <- st_read('data/typology_v3.14_EEZ_wdpa_4326_v2_centroids.gpkg') %>%
+  mutate(Protection_status = replace_na(PA_DEF, 'Unprotected')) %>%  
+  mutate(Protection_status = recode(Protection_status, 'PA' =  'Protected', 'OECM' =  'Protected'))
+gmw <- read.csv('data/gmw_area_4326.csv')
+
+typ2 <- typ %>% 
+  left_join(gmw)
+
+driv_wide <- drivers_epoch %>% 
+  filter(!is.na(Type_MRG_PA)) %>% # TODO: follow up on these NAs
+  left_join(st_drop_geometry(typ2), by = 'Type_MRG_PA') %>%
+  filter(!is.na(year) & year != '-9999') %>%
+  mutate(area_loss_ha = npixels*0.09) %>% 
+  select(Type_MRG_PA, Driver, year, driver_type, Class, UNION, Protection_status, area_loss_ha, gmw1996_ha) %>% 
+  pivot_wider(names_from = year, values_from = area_loss_ha, names_prefix = 'loss_') %>% 
+  mutate(across(loss_1996:loss_2016, ~replace_na(.x, 0))) %>% 
+  mutate(area_2001_ha = gmw1996_ha-loss_1996) %>% 
+  mutate(area_2006_ha = area_2001_ha-loss_2001) %>% 
+  mutate(area_2011_ha = area_2006_ha-loss_2006) %>% 
+  mutate(area_2016_ha = area_2011_ha-loss_2011) %>% 
+  mutate(area_2021_ha = area_2016_ha-loss_2016) %>% 
+  mutate(across(area_2001_ha:area_2021_ha, ~ifelse(.x < 0, 0, .x))) %>% 
+  mutate(epoch_rate_loss_2001 = log(area_2001_ha/gmw1996_ha)/5,
+         epoch_rate_loss_2006 = log(area_2006_ha/area_2001_ha)/5,
+         epoch_rate_loss_2011 = log(area_2011_ha/area_2006_ha)/5,
+         epoch_rate_loss_2016 = log(area_2016_ha/area_2011_ha)/5,
+         epoch_rate_loss_2021 = log(area_2021_ha/area_2016_ha)/5) %>% 
+  mutate(across(epoch_rate_loss_2001:epoch_rate_loss_2021, ~replace(.x, is.infinite(.x),0))) %>%
+  mutate(across(epoch_rate_loss_2001:epoch_rate_loss_2021, ~replace(.x, is.na(.x),0))) %>% 
+    pivot_longer(cols = c(epoch_rate_loss_2001:epoch_rate_loss_2021), names_to = 'year_col', values_to = 'annual_rate_loss') %>% 
+  mutate(year = str_split(year_col, "_", simplify = T)[, 4]) %>% 
+  mutate(initialyear = as.numeric(year) - 5) %>% 
+  mutate(year = paste0(initialyear, '-', year)) %>% 
+  mutate(rate = log(abs(annual_rate_loss))) %>% 
+  mutate(rate = ifelse(is.infinite(rate), 0, rate))
+```
+
+# Map and plot
+
+## {.toolbar}
+```{r}
+selectInput("select", label = h6("Select jurisdiction"), 
+    choices = c('Global', unique(driv_wide$UNION)), 
+    selected = 'Global', width = '2800px')
+checkboxInput('jitter', label = h6("Add individual data points?"))
+checkboxInput('trans', label = h6("Back-transform y-axis?"))
+checkboxInput('free', label = h6("Free y-axis?"))
+```
+
+## Row
+```{r}
+tmapOutput("map")
+```
+
+## Row
+```{r}
+plotOutput('plot')
+```
+
+```{r}
+#| context: server
+dat <- reactive({
+  if(input$select != 'Global'){
+  driv_wide %>% filter(UNION == input$select) %>% data.frame()
+  }else{
+  driv_wide
+  }
+  })
+
+mapdat <- reactive({
+  if(input$select != 'Global'){
+  typ %>% filter(UNION == input$select)
+  }else{
+  typ
+  }
+  })
+
+output$map <- renderTmap({
+		qtm(mapdat(), dots.col = 'Protection_status', dots.alpha = 0.5,  dots.palette = c(Protected = "#F8766D", Unprotected = "#00BFC4"))
+		})
+
+output$plot <- renderPlot({
+  if(input$trans == FALSE){
+  a <- ggplot(dat(), aes(x = year, y = (abs(annual_rate_loss))^(1/3), col = Protection_status, fill = Protection_status)) +
+  geom_boxplot(alpha = 0.4) +
+  facet_nested(~driver_type+Driver) +
+  #facet_grid(vars(Driver),vars(PA_DEF2), scales = 'free_y') +
+  xlab('Epoch') + 
+  ylab('Annual rate of loss (cube-root transform)') + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        text = element_text(size = 20))
+  a
+  }else{
+      a <- ggplot(dat(), aes(x = year, y = abs(annual_rate_loss), col = Protection_status, fill = Protection_status)) +
+  geom_boxplot(alpha = 0.4) +
+  facet_nested(~driver_type+Driver) +
+  #facet_grid(vars(Driver),vars(PA_DEF2), scales = 'free_y') +
+  xlab('Epoch') + 
+  ylab('Annual rate of loss') + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        text = element_text(size = 20))
+      a
+  }
+  
+    if(input$jitter == FALSE){
+      b <- a
+      b
+  }else{
+    b <- a + geom_point(position=position_jitterdodge(),alpha = 0.2, size = 0.5, width = 0.1)
+    b
+  }
+      if(input$free == FALSE){
+      c <- b
+      c
+  }else{
+    c <- b + facet_nested(~driver_type+Driver, scales = 'free', independent = 'y')
+    c
+  }
+  
+})
+```
+

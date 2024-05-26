@@ -1,0 +1,286 @@
+---
+title: "Quarto!"
+subtitle: 'Presentation for the UQ MME-AMBL lab group by Christina'
+date: "5/27/2024"
+format:
+  revealjs:
+    theme: night
+    embed-resources: true
+    scrollable: true
+    progress: true
+editor: visual
+toc: true
+toc-title: 'Todays lab chat....'
+from: markdown+emoji
+---
+
+## [Quarto](https://quarto.org/)! What & Why?
+
+-   Tell stories with your data :whale2:
+-   Interweaving narrative, code, and output
+-   R [Markdown](https://en.wikipedia.org/wiki/Markdown) on steroids?
+-   Flexible
+    -   [Presentations (like this!)](https://quarto.org/docs/presentations/revealjs/)
+    -   Blogs/websites (more to come from Jase :blush:...)
+    -   Manuscripts - [executable papers](https://www.nature.com/articles/s42005-020-00403-4)
+    -   Dashboards + Shiny server (focus of today)
+    -   more....
+
+::: notes
+Can create nice documents with richly formatted text, embedded code and outputs, like a standard knitted R Markdown (.rmd), but can do so much more... Quarto also has native features for special project types like Websites, Books, and Blogs (rather than relying on external packages). Start by showing them the Quarto webpage - gives a sense of what it can do/what it is Then take them through some examples of how you have used it Then do an example demonstration, Build from a simple R markdown to interactive dashboard
+:::
+
+## [Markdown](https://www.markdownguide.org/) syntax
+
+<br> [Basics of Markdown syntax for Quarto](https://quarto.org/docs/authoring/markdown-basics.html)
+
+<br> We can embed richly-formatted text, tables, images, mathematical equations, etc. along with executable code chunks and output that is interactive...
+
+**making it much easier to tell stories with our data**
+
+<br> For example,
+
+Let's do some arithmetic...
+
+```{r}
+#| echo: true
+2 + 2
+```
+
+<br> Let's make an interactive map...
+
+```{r}
+#| echo: true
+library(tmap)
+tmap_mode('view')
+data('World')
+
+qtm(World, fill = 'name')
+```
+
+::: notes
+Highlight some of the syntax stuff, e.g. how to do mathematical equations, images, etc,
+
+A markup language is a set of rules that defines how the layout and presentation of text and images should appear in a digital document. It allows structuring documents, adding formatting, and specifying how different elements should be displayed (or “rendered”) on webpages.
+
+YAML metadata options - YAML is a human-readable data serialization language that is often used for writing configuration files. Depending on whom you ask, YAML stands for yet another markup language or YAML ain't markup language (a recursive acronym), which emphasizes that YAML is for data, not documents
+:::
+
+## Show & Tell
+
+-   Coding/Analysis Tutorials: [Quarto code](https://github.com/cabuelow/bush-heritage-R/blob/master/AdvancedR_Course_Day1/Statistical-modelling-Part_1.qmd), [published .html](https://cabuelow.quarto.pub/bush-heritage-r-workshops/Statistical-modelling-Part_1.html)
+-   [Sharing results with collaborators](https://cabuelow.quarto.pub/accommodation-space-split-by-jurisdiction-boundaries/)
+-   Satisfying End-users - [reactive](https://rstudio.github.io/cheatsheets/html/shiny.html#reactivity)/interactive data exploration with [dashboard](https://quarto.org/docs/dashboards/) + [shiny server](https://quarto.org/docs/dashboards/interactivity/shiny-r.html)
+    -   Oceans Dashboard Prototype: [Quarto dashboard code](https://github.com/cabuelow/oceans-dashboard/blob/master/dashboard-protoype.qmd), [Live web app](https://cbuelow.shinyapps.io/oceans-dashboard-protoype/)
+    -   Oceans Dashboard R package - [{Golem} code](https://github.com/cabuelow/OceansDash/tree/master/R), [Live web app](https://cbuelow.shinyapps.io/OceansDash/)
+-   [Making models more robust](https://cbuelow.shinyapps.io/prioritise-actions/)
+
+::: notes
+Bring up the code and have side by side with app to show them how to cod e the features
+:::
+
+## Demonstration
+
+Using Quarto to [explore processed spatial data globally and by country](https://cbuelow.shinyapps.io/explore-driver-data/)
+
+<br> We will start with a static document and build to an interactive shiny app
+
+<br> Some wrangling code we will copy and paste in the Quarto Markdown
+
+<br>
+
+```{r}
+#| eval: false
+#| echo: true
+
+driv_wide <- drivers_epoch %>% 
+  filter(!is.na(Type_MRG_PA)) %>% # TODO: follow up on these NAs
+  left_join(st_drop_geometry(typ2), by = 'Type_MRG_PA') %>%
+  filter(!is.na(year) & year != '-9999') %>%
+  mutate(area_loss_ha = npixels*0.09) %>% 
+  select(Type_MRG_PA, Driver, year, driver_type, Class, UNION, Protection_status, area_loss_ha, gmw1996_ha) %>% 
+  pivot_wider(names_from = year, values_from = area_loss_ha, names_prefix = 'loss_') %>% 
+  mutate(across(loss_1996:loss_2016, ~replace_na(.x, 0))) %>% 
+  mutate(area_2001_ha = gmw1996_ha-loss_1996) %>% 
+  mutate(area_2006_ha = area_2001_ha-loss_2001) %>% 
+  mutate(area_2011_ha = area_2006_ha-loss_2006) %>% 
+  mutate(area_2016_ha = area_2011_ha-loss_2011) %>% 
+  mutate(area_2021_ha = area_2016_ha-loss_2016) %>% 
+  mutate(across(area_2001_ha:area_2021_ha, ~ifelse(.x < 0, 0, .x))) %>% 
+  mutate(epoch_rate_loss_2001 = log(area_2001_ha/gmw1996_ha)/5,
+         epoch_rate_loss_2006 = log(area_2006_ha/area_2001_ha)/5,
+         epoch_rate_loss_2011 = log(area_2011_ha/area_2006_ha)/5,
+         epoch_rate_loss_2016 = log(area_2016_ha/area_2011_ha)/5,
+         epoch_rate_loss_2021 = log(area_2021_ha/area_2016_ha)/5) %>% 
+  mutate(across(epoch_rate_loss_2001:epoch_rate_loss_2021, ~replace(.x, is.infinite(.x),0))) %>%
+  mutate(across(epoch_rate_loss_2001:epoch_rate_loss_2021, ~replace(.x, is.na(.x),0))) %>% 
+    pivot_longer(cols = c(epoch_rate_loss_2001:epoch_rate_loss_2021), names_to = 'year_col', values_to = 'annual_rate_loss') %>% 
+  mutate(year = str_split(year_col, "_", simplify = T)[, 4]) %>% 
+  mutate(initialyear = as.numeric(year) - 5) %>% 
+  mutate(year = paste0(initialyear, '-', year)) %>% 
+  mutate(rate = log(abs(annual_rate_loss))) %>% 
+  mutate(rate = ifelse(is.infinite(rate), 0, rate))
+```
+
+<br> Or, if you just want to copy and paste all the code to make the final interactive shiny app with Quarto (will need to un-hashtag the r code chunks after copying and pasting)
+
+<br>
+
+```{r}
+#| eval: false
+#| echo: true
+
+---
+title: "Explore data"
+format: 
+  dashboard:
+      scrolling: true
+theme: flatly
+server: shiny
+---
+
+#```{r}
+#| context: setup
+#| include: false
+library(tidyverse)
+library(sf)
+library(tmap)
+library(ggh4x)
+library(patchwork)
+library(shiny)
+tmap_mode('view')
+load('data/2024-04-29-drivers-epochs-intersect-typos_wdpa_v2.rda')
+typ <- st_read('data/typology_v3.14_EEZ_wdpa_4326_v2_centroids.gpkg') %>%
+  mutate(Protection_status = replace_na(PA_DEF, 'Unprotected')) %>%  
+  mutate(Protection_status = recode(Protection_status, 'PA' =  'Protected', 'OECM' =  'Protected'))
+gmw <- read.csv('data/gmw_area_4326.csv')
+
+typ2 <- typ %>% 
+  left_join(gmw)
+
+driv_wide <- drivers_epoch %>% 
+  filter(!is.na(Type_MRG_PA)) %>% # TODO: follow up on these NAs
+  left_join(st_drop_geometry(typ2), by = 'Type_MRG_PA') %>%
+  filter(!is.na(year) & year != '-9999') %>%
+  mutate(area_loss_ha = npixels*0.09) %>% 
+  select(Type_MRG_PA, Driver, year, driver_type, Class, UNION, Protection_status, area_loss_ha, gmw1996_ha) %>% 
+  pivot_wider(names_from = year, values_from = area_loss_ha, names_prefix = 'loss_') %>% 
+  mutate(across(loss_1996:loss_2016, ~replace_na(.x, 0))) %>% 
+  mutate(area_2001_ha = gmw1996_ha-loss_1996) %>% 
+  mutate(area_2006_ha = area_2001_ha-loss_2001) %>% 
+  mutate(area_2011_ha = area_2006_ha-loss_2006) %>% 
+  mutate(area_2016_ha = area_2011_ha-loss_2011) %>% 
+  mutate(area_2021_ha = area_2016_ha-loss_2016) %>% 
+  mutate(across(area_2001_ha:area_2021_ha, ~ifelse(.x < 0, 0, .x))) %>% 
+  mutate(epoch_rate_loss_2001 = log(area_2001_ha/gmw1996_ha)/5,
+         epoch_rate_loss_2006 = log(area_2006_ha/area_2001_ha)/5,
+         epoch_rate_loss_2011 = log(area_2011_ha/area_2006_ha)/5,
+         epoch_rate_loss_2016 = log(area_2016_ha/area_2011_ha)/5,
+         epoch_rate_loss_2021 = log(area_2021_ha/area_2016_ha)/5) %>% 
+  mutate(across(epoch_rate_loss_2001:epoch_rate_loss_2021, ~replace(.x, is.infinite(.x),0))) %>%
+  mutate(across(epoch_rate_loss_2001:epoch_rate_loss_2021, ~replace(.x, is.na(.x),0))) %>% 
+    pivot_longer(cols = c(epoch_rate_loss_2001:epoch_rate_loss_2021), names_to = 'year_col', values_to = 'annual_rate_loss') %>% 
+  mutate(year = str_split(year_col, "_", simplify = T)[, 4]) %>% 
+  mutate(initialyear = as.numeric(year) - 5) %>% 
+  mutate(year = paste0(initialyear, '-', year)) %>% 
+  mutate(rate = log(abs(annual_rate_loss))) %>% 
+  mutate(rate = ifelse(is.infinite(rate), 0, rate))
+#```
+
+# Map and plot
+
+## {.toolbar}
+#```{r}
+selectInput("select", label = h6("Select jurisdiction"), 
+    choices = c('Global', unique(driv_wide$UNION)), 
+    selected = 'Global', width = '2800px')
+checkboxInput('jitter', label = h6("Add individual data points?"))
+checkboxInput('trans', label = h6("Back-transform y-axis?"))
+checkboxInput('free', label = h6("Free y-axis?"))
+#```
+
+## Row
+#```{r}
+tmapOutput("map")
+#```
+
+## Row
+#```{r}
+plotOutput('plot')
+#```
+
+#```{r}
+#| context: server
+dat <- reactive({
+  if(input$select != 'Global'){
+  driv_wide %>% filter(UNION == input$select) %>% data.frame()
+  }else{
+  driv_wide
+  }
+  })
+
+mapdat <- reactive({
+  if(input$select != 'Global'){
+  typ %>% filter(UNION == input$select)
+  }else{
+  typ
+  }
+  })
+
+output$map <- renderTmap({
+		qtm(mapdat(), dots.col = 'Protection_status', dots.alpha = 0.5,  dots.palette = c(Protected = "#F8766D", Unprotected = "#00BFC4"))
+		})
+
+output$plot <- renderPlot({
+  if(input$trans == FALSE){
+  a <- ggplot(dat(), aes(x = year, y = (abs(annual_rate_loss))^(1/3), col = Protection_status, fill = Protection_status)) +
+  geom_boxplot(alpha = 0.4) +
+  facet_nested(~driver_type+Driver) +
+  #facet_grid(vars(Driver),vars(PA_DEF2), scales = 'free_y') +
+  xlab('Epoch') + 
+  ylab('Annual rate of loss (cube-root transform)') + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        text = element_text(size = 20))
+  a
+  }else{
+      a <- ggplot(dat(), aes(x = year, y = abs(annual_rate_loss), col = Protection_status, fill = Protection_status)) +
+  geom_boxplot(alpha = 0.4) +
+  facet_nested(~driver_type+Driver) +
+  #facet_grid(vars(Driver),vars(PA_DEF2), scales = 'free_y') +
+  xlab('Epoch') + 
+  ylab('Annual rate of loss') + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        text = element_text(size = 20))
+      a
+  }
+  
+    if(input$jitter == FALSE){
+      b <- a
+      b
+  }else{
+    b <- a + geom_point(position=position_jitterdodge(),alpha = 0.2, size = 0.5, width = 0.1)
+    b
+  }
+      if(input$free == FALSE){
+      c <- b
+      c
+  }else{
+    c <- b + facet_nested(~driver_type+Driver, scales = 'free', independent = 'y')
+    c
+  }
+  
+})
+#```
+```
+
+::: notes
+Simple example to get started with Quarto,
+
+Start with a .qmd that describes the results etc.
+
+Then decide want to make map interactive to zoom into countries
+:::
