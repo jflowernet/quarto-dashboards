@@ -1,0 +1,49 @@
+---
+title: "Exploring mangrove data"
+format: dashboard
+server: shiny
+editor: visual
+---
+
+```{r}
+#| context: setup
+#| include: false
+library(tmap)
+library(sf)
+library(shiny)
+library(dplyr)
+
+typ <- st_read("data/typology_v3.14_EEZ_wdpa_4326_v2_centroids.gpkg")
+
+```
+
+# Map
+
+## {.toolbar}
+
+```{r}
+selectInput('select', 'Select jurisdictions', 
+            choices = c('Global', unique(typ$UNION)),
+            selected = 'Global')
+```
+
+## Row
+
+```{r}
+tmapOutput('map')
+```
+
+```{r}
+#| context: server
+
+mapdat <- reactive({
+  if(input$select != 'Global'){
+    typ |> filter(UNION == input$select)
+  } else typ
+})
+
+output$map <- renderTmap({
+  qtm(mapdat(), dots.col = 'PA_DEF')
+})
+```
+
